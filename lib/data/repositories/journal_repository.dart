@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:polaroid_journal/data/models/journal_entry.dart';
 import 'package:polaroid_journal/data/models/journal_state.dart';
 import 'package:polaroid_journal/data/models/layer_model.dart';
+import 'package:whiteboard/whiteboard.dart';
 
 class JournalRepository {
   static const String _boxName = 'journal_entries';
@@ -53,6 +54,20 @@ class JournalRepository {
   }
 
   Map<String, dynamic> _serializeLayer(LayerModel layer) {
+    String? imagePath;
+    String? imageType;
+
+    // Handle image serialization
+    if (layer.image != null) {
+      if (layer.image is FileImage) {
+        imagePath = (layer.image as FileImage).file.path;
+        imageType = 'file';
+      } else if (layer.image is AssetImage) {
+        imagePath = (layer.image as AssetImage).assetName;
+        imageType = 'asset';
+      }
+    }
+
     return {
       'id': layer.id,
       'type': layer.type.name,
@@ -66,16 +81,33 @@ class JournalRepository {
       'textColor': layer.textColor?.value,
       'textAlign': layer.textAlign.index,
       'fontFamily': layer.fontFamily,
-      // Note: Images and whiteboard controllers need special handling
+      'imagePath': imagePath,
+      'imageType': imageType,
     };
   }
 
   Map<String, dynamic> _serializeBackground(BackgroundConfig bg) {
+    String? imagePath;
+    String? imageType;
+
+    // Handle background image serialization
+    if (bg.image != null) {
+      if (bg.image is FileImage) {
+        imagePath = (bg.image as FileImage).file.path;
+        imageType = 'file';
+      } else if (bg.image is AssetImage) {
+        imagePath = (bg.image as AssetImage).assetName;
+        imageType = 'asset';
+      }
+    }
+
     return {
       'primaryColor': bg.primaryColor?.value,
       'secondaryColor': bg.secondaryColor?.value,
       'opacity': bg.opacity,
       'blur': bg.blur,
+      'imagePath': imagePath,
+      'imageType': imageType,
     };
   }
 
@@ -90,6 +122,22 @@ class JournalRepository {
   }
 
   LayerModel _deserializeLayer(Map<String, dynamic> data) {
+    // Restore image based on type
+    ImageProvider? image;
+    if (data['imagePath'] != null && data['imageType'] != null) {
+      if (data['imageType'] == 'file') {
+        image = FileImage(File(data['imagePath']));
+      } else if (data['imageType'] == 'asset') {
+        image = AssetImage(data['imagePath']);
+      }
+    }
+
+    // Create new whiteboard controller for drawing layers
+    WhiteBoardController? whiteBoardController;
+    if (data['type'] == LayerType.drawing.name) {
+      whiteBoardController = WhiteBoardController();
+    }
+
     return LayerModel(
       id: data['id'],
       type: LayerType.values.firstWhere((e) => e.name == data['type']),
@@ -103,15 +151,28 @@ class JournalRepository {
       textColor: data['textColor'] != null ? Color(data['textColor']) : null,
       textAlign: TextAlign.values[data['textAlign']],
       fontFamily: data['fontFamily'],
+      image: image,
+      whiteBoardController: whiteBoardController,
     );
   }
 
   BackgroundConfig _deserializeBackground(Map<String, dynamic> data) {
+    // Restore background image based on type
+    ImageProvider? image;
+    if (data['imagePath'] != null && data['imageType'] != null) {
+      if (data['imageType'] == 'file') {
+        image = FileImage(File(data['imagePath']));
+      } else if (data['imageType'] == 'asset') {
+        image = AssetImage(data['imagePath']);
+      }
+    }
+
     return BackgroundConfig(
       primaryColor: data['primaryColor'] != null ? Color(data['primaryColor']) : null,
       secondaryColor: data['secondaryColor'] != null ? Color(data['secondaryColor']) : null,
       opacity: data['opacity'],
       blur: data['blur'],
+      image: image,
     );
   }
 
