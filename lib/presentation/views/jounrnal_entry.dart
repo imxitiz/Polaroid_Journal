@@ -16,7 +16,9 @@ import 'package:polaroid_journal/presentation/views/journal_toolbar.dart';
 import 'package:whiteboard/whiteboard.dart';
 
 class JournalEntryScreen extends ConsumerStatefulWidget {
-  const JournalEntryScreen({super.key});
+  final String? entryId;
+
+  const JournalEntryScreen({super.key, this.entryId});
 
   @override
   ConsumerState<JournalEntryScreen> createState() => _JournalEntryScreenState();
@@ -24,6 +26,7 @@ class JournalEntryScreen extends ConsumerStatefulWidget {
 
 class _JournalEntryScreenState extends ConsumerState<JournalEntryScreen> {
   final GlobalKey _canvasKey = GlobalKey();
+  final TextEditingController _titleController = TextEditingController();
   LayerModel? focusedLayer;
 
   Color currentTextColor = Colors.black;
@@ -41,6 +44,25 @@ class _JournalEntryScreenState extends ConsumerState<JournalEntryScreen> {
   bool _isPickingImage = false;
 
   bool _isExporting = false;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await ref.read(journalProvider.notifier).initRepository();
+      if (widget.entryId != null) {
+        ref.read(journalProvider.notifier).loadEntry(widget.entryId!);
+        _titleController.text = ref.read(journalProvider).title;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    super.dispose();
+  }
 
   // ─── Layer actions ────────────────────────────────────────────────────────
 
@@ -63,6 +85,7 @@ class _JournalEntryScreenState extends ConsumerState<JournalEntryScreen> {
   void _onLayerRemoved(LayerModel layer) {
     ref.read(journalProvider.notifier).removeLayer(layer.id);
     setState(() => focusedLayer = null);
+    _triggerAutoSave();
   }
 
   void _copyLayer(LayerModel layer) {
@@ -71,12 +94,14 @@ class _JournalEntryScreenState extends ConsumerState<JournalEntryScreen> {
       position: Offset(layer.position.dx + 20, layer.position.dy + 20),
     );
     ref.read(journalProvider.notifier).addLayer(copy);
+    _triggerAutoSave();
   }
 
   void _onLayerUpdated(LayerModel updatedLayer) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(journalProvider.notifier).updateLayer(updatedLayer);
       setState(() => focusedLayer = updatedLayer);
+      _triggerAutoSave();
     });
   }
 
@@ -275,6 +300,62 @@ class _JournalEntryScreenState extends ConsumerState<JournalEntryScreen> {
   void _changeStrokeWidth(double width) {
     setState(() => strokeWidth = width);
   }
+
+  //  ─── Save ──────────────────────────────────────────────────────────────────
+
+  Future<void> _saveEntry() async {
+    if (_isSaving) return;
+
+    setState(() => _isSaving = true);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Saving...")),
+      );
+    }
+
+    try {
+      // Update title
+      ref.read(journalProvider.notifier).setTitle(_titleController.text);
+
+      // Generate thumbnail
+      final boundary = _canvasKey.currentContext!.findRenderObject()
+          as RenderRepaintBoundary;
+      final image = await boundary.toImage(pixelRatio: 0.3); // Lower quality for thumbnail
+
+      // Save entry
+      await ref.read(journalProvider.notifier).saveEntry(thumbnail: image);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Entry saved successfully")),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Save failed: $e")),
+      );
+    }
+
+    if (mounted) setState(() => _isSaving = false);
+  }
+
+  Future<void> _triggerAutoSave() async {
+    if (ref.read(journalProvider).isAutoSaveEnabled) {
+      try {
+        ref.read(journalProvider.notifier).setTitle(_titleController.text);
+        final boundary = _canvasKey.currentContext?.findRenderObject()
+            as RenderRepaintBoundary?;
+        if (boundary != null) {
+          final image = await boundary.toImage(pixelRatio: 0.3);
+          await ref.read(journalProvider.notifier).autoSave(thumbnail: image);
+        }
+      } catch (e) {
+        // Silent fail for auto-save
+      }
+    }
+  }
+
   //  ─── Export ────────────────────────────────────────────────────────────────
 
   Future<void> _exportCanvas() async {
@@ -349,13 +430,47 @@ class _JournalEntryScreenState extends ConsumerState<JournalEntryScreen> {
   @override
   Widget build(BuildContext context) {
     final isDragging = ref.watch(isDraggingProvider);
+    final journalState = ref.watch(journalProvider);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("New Journal Entry"),
+        title: SizedBox(
+          width: 200,
+          child: TextField(
+            controller: _titleController,
+            decoration: const InputDecoration(
+              hintText: 'Entry Title',
+              border: InputBorder.none,
+            ),
+            style: const TextStyle(fontSize: 18),
+            onChanged: (value) {
+              ref.read(journalProvider.notifier).setTitle(value);
+            },
+          ),
+        ),
         actions: [
+          IconButton(
+            icon: Icon(
+              journalState.isAutoSaveEnabled
+                  ? Icons.cloud_done
+                  : Icons.cloud_off,
+            ),
+            onPressed: () {
+              ref.read(journalProvider.notifier).toggleAutoSave();
+            },
+            tooltip: journalState.isAutoSaveEnabled
+                ? 'Auto-save enabled'
+                : 'Auto-save disabled',
+          ),
+          IconButton(
+            icon: const Icon(Icons.save),
+            onPressed: _saveEntry,
+            tooltip: 'Save entry',
+          ),
           IconButton(
             icon: const Icon(Icons.download),
             onPressed: _exportCanvas,
+            tooltip: 'Export to gallery',
           ),
         ],
       ),

@@ -38,19 +38,31 @@ class BackgroundConfig {
 class JournalState {
   final List<LayerModel> layers;
   final BackgroundConfig background;
+  final String? entryId;
+  final String title;
+  final bool isAutoSaveEnabled;
 
   const JournalState({
     required this.layers,
     this.background = const BackgroundConfig(),
+    this.entryId,
+    this.title = 'Untitled',
+    this.isAutoSaveEnabled = false,
   });
 
   JournalState copyWith({
     List<LayerModel>? layers,
     BackgroundConfig? background,
+    String? entryId,
+    String? title,
+    bool? isAutoSaveEnabled,
   }) {
     return JournalState(
       layers: layers ?? this.layers,
       background: background ?? this.background,
+      entryId: entryId ?? this.entryId,
+      title: title ?? this.title,
+      isAutoSaveEnabled: isAutoSaveEnabled ?? this.isAutoSaveEnabled,
     );
   }
 }
